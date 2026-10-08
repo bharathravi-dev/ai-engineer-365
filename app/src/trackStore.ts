@@ -1,30 +1,36 @@
 import { create } from 'zustand';
 import * as api from './lib/api';
-import type { Enrollment, TrackDetail, TrackSummary } from './lib/api';
+import type { Enrollment, LearningSummary, TopicStatus, TrackDetail, TrackSummary } from './lib/api';
 
 /**
  * Store for the multi-track roadmap experience (catalog, enrollment, per-topic
- * progress/notes). Auth lives in useDashboardStore; this store just calls the
- * Node API (which attaches the Supabase JWT). Progress/notes are only loaded
- * and persisted for signed-in users — guests can browse but not track.
+ * status/notes, "My Learning" summary). Auth lives in useDashboardStore; this
+ * store calls the Node API (which attaches the Supabase JWT). Progress is only
+ * loaded/persisted for signed-in users — guests can browse but not track.
+ *
+ * `status` holds only non-default states; a topic with no entry is 'todo'.
  */
 type TrackState = {
   catalog: TrackSummary[];
   catalogLoading: boolean;
   current: TrackDetail | null;
   currentLoading: boolean;
-  enrollments: Record<string, Enrollment>; // keyed by track_id
-  completed: Set<string>; // topic ids
-  notes: Record<string, string>; // topic_id -> content
+  enrollments: Record<string, Enrollment>;
+  status: Record<string, TopicStatus>; // topic_id -> in_progress | done | skip
+  notes: Record<string, string>;
+  summaries: LearningSummary[];
+  summaryLoading: boolean;
   error: string | null;
 
   loadCatalog: () => Promise<void>;
   loadTrack: (slug: string) => Promise<void>;
   loadEnrollments: () => Promise<void>;
   loadTrackState: (trackId: string) => Promise<void>;
+  loadSummary: () => Promise<void>;
   enroll: (body: Enrollment) => Promise<{ error: string | null }>;
   leave: (trackId: string) => Promise<void>;
-  toggleTopic: (topicId: string) => void;
+  setTopicStatus: (topicId: string, status: TopicStatus) => void;
+  toggleDone: (topicId: string) => void;
   saveTopicNote: (topicId: string, content: string) => void;
   reset: () => void;
 };
@@ -35,8 +41,10 @@ export const useTrackStore = create<TrackState>((set, get) => ({
   current: null,
   currentLoading: false,
   enrollments: {},
-  completed: new Set(),
+  status: {},
   notes: {},
+  summaries: [],
+  summaryLoading: false,
   error: null,
 
   loadCatalog: async () => {
@@ -52,8 +60,7 @@ export const useTrackStore = create<TrackState>((set, get) => ({
   loadTrack: async (slug) => {
     set({ currentLoading: true, error: null });
     try {
-      const detail = await api.getTrack(slug);
-      set({ current: detail, currentLoading: false });
+      set({ current: await api.getTrack(slug), currentLoading: false });
     } catch (e) {
       set({ current: null, currentLoading: false, error: e instanceof Error ? e.message : 'Track not found.' });
     }
@@ -72,11 +79,21 @@ export const useTrackStore = create<TrackState>((set, get) => ({
     try {
       const { progress, notes } = await api.getTrackState(trackId);
       set({
-        completed: new Set(progress.filter((p) => p.completed).map((p) => p.topic_id)),
+        status: Object.fromEntries(progress.map((p) => [p.topic_id, p.status])),
         notes: Object.fromEntries(notes.map((n) => [n.topic_id, n.content ?? ''])),
       });
     } catch {
       /* keep existing */
+    }
+  },
+
+  loadSummary: async () => {
+    set({ summaryLoading: true });
+    try {
+      const { summaries } = await api.getMySummary();
+      set({ summaries, summaryLoading: false });
+    } catch {
+      set({ summaries: [], summaryLoading: false });
     }
   },
 
@@ -95,13 +112,17 @@ export const useTrackStore = create<TrackState>((set, get) => ({
     await get().loadEnrollments();
   },
 
-  toggleTopic: (topicId) => {
-    const completed = new Set(get().completed);
-    const nowDone = !completed.has(topicId);
-    if (nowDone) completed.add(topicId);
-    else completed.delete(topicId);
-    set({ completed });
-    void api.putTopicProgress(topicId, nowDone).catch(() => {});
+  setTopicStatus: (topicId, status) => {
+    const next = { ...get().status };
+    if (status === 'todo') delete next[topicId];
+    else next[topicId] = status;
+    set({ status: next });
+    void api.putTopicProgress(topicId, status).catch(() => {});
+  },
+
+  toggleDone: (topicId) => {
+    const isDone = get().status[topicId] === 'done';
+    get().setTopicStatus(topicId, isDone ? 'todo' : 'done');
   },
 
   saveTopicNote: (topicId, content) => {
@@ -109,5 +130,5 @@ export const useTrackStore = create<TrackState>((set, get) => ({
     void api.putTopicNote(topicId, content).catch(() => {});
   },
 
-  reset: () => set({ enrollments: {}, completed: new Set(), notes: {} }),
+  reset: () => set({ enrollments: {}, status: {}, notes: {}, summaries: [] }),
 }));

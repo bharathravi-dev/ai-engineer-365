@@ -97,17 +97,31 @@ export function enrollInTrack(body: Enrollment) {
 export function leaveTrack(trackId: string) {
   return apiFetch<{ ok: true }>(`/tracks/enroll/${trackId}`, { method: 'DELETE' });
 }
+export type TopicStatus = 'todo' | 'in_progress' | 'done' | 'skip';
 export function getTrackState(trackId: string) {
   return apiFetch<{
-    progress: Array<{ topic_id: string; completed: boolean }>;
+    progress: Array<{ topic_id: string; status: TopicStatus }>;
     notes: Array<{ topic_id: string; content: string }>;
   }>(`/tracks/me/state/${trackId}`);
 }
-export function putTopicProgress(topicId: string, completed: boolean) {
+export function putTopicProgress(topicId: string, status: TopicStatus) {
   return apiFetch<{ ok: true }>(`/tracks/me/progress/${topicId}`, {
     method: 'PUT',
-    body: JSON.stringify({ completed }),
+    body: JSON.stringify({ status }),
   });
+}
+
+export type LearningSummary = {
+  track: { id: string; slug: string; title: string; icon: string; color: string };
+  total: number;
+  done: number;
+  next: { id: string; title: string } | null;
+  start_date: string;
+  weekday_hours: number;
+  weekend_hours: number;
+};
+export function getMySummary() {
+  return apiFetch<{ summaries: LearningSummary[] }>('/tracks/me/summary');
 }
 export function putTopicNote(topicId: string, content: string) {
   return apiFetch<{ ok: true }>(`/tracks/me/notes/${topicId}`, {

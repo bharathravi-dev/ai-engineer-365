@@ -304,7 +304,7 @@ tracksRouter.get('/me/state/:trackId', requireUser, async (req, res) => {
   const idFilter = topicIds.length ? topicIds : ['00000000-0000-0000-0000-000000000000'];
 
   const [progressRes, notesRes] = await Promise.all([
-    admin.from('topic_progress').select('topic_id, completed').eq('user_id', userId).in('topic_id', idFilter),
+    admin.from('topic_progress').select('topic_id, status').eq('user_id', userId).in('topic_id', idFilter),
     admin.from('topic_notes').select('topic_id, content').eq('user_id', userId).in('topic_id', idFilter),
   ]);
   if (progressRes.error || notesRes.error) {
@@ -313,13 +313,14 @@ tracksRouter.get('/me/state/:trackId', requireUser, async (req, res) => {
   res.json({ progress: progressRes.data ?? [], notes: notesRes.data ?? [] });
 });
 
-/** PUT /api/tracks/me/progress/:topicId  body { completed } */
+const STATUSES = ['in_progress', 'done', 'skip'];
+/** PUT /api/tracks/me/progress/:topicId  body { status } — 'todo' removes the row. */
 tracksRouter.put('/me/progress/:topicId', requireUser, async (req, res) => {
   const userId = req.authUser!.id;
   const topicId = req.params.topicId;
-  const completed = Boolean(req.body?.completed);
-  const { error } = completed
-    ? await admin.from('topic_progress').upsert({ user_id: userId, topic_id: topicId, completed: true })
+  const status = req.body?.status;
+  const { error } = STATUSES.includes(status)
+    ? await admin.from('topic_progress').upsert({ user_id: userId, topic_id: topicId, status })
     : await admin.from('topic_progress').delete().eq('user_id', userId).eq('topic_id', topicId);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ ok: true });
@@ -333,4 +334,64 @@ tracksRouter.put('/me/notes/:topicId', requireUser, async (req, res) => {
   const { error } = await admin.from('topic_notes').upsert({ user_id: userId, topic_id: topicId, content });
   if (error) return res.status(500).json({ error: error.message });
   res.json({ ok: true });
+});
+
+const NONE = ['00000000-0000-0000-0000-000000000000'];
+/** GET /api/tracks/me/summary — per-enrolled-track progress + "up next" concept. */
+tracksRouter.get('/me/summary', requireUser, async (req, res) => {
+  const userId = req.authUser!.id;
+  const { data: enr, error } = await admin.from('enrollments').select('*').eq('user_id', userId);
+  if (error) return res.status(500).json({ error: error.message });
+  if (!enr?.length) return res.json({ summaries: [] });
+
+  const trackIds = enr.map((e) => e.track_id);
+  const [{ data: tracks }, { data: modules }] = await Promise.all([
+    admin.from('tracks').select('id, slug, title, icon, color').in('id', trackIds),
+    admin.from('modules').select('id, track_id, sort_order').in('track_id', trackIds),
+  ]);
+  const moduleIds = (modules ?? []).map((m) => m.id);
+  const { data: topics } = await admin
+    .from('topics')
+    .select('id, module_id, title, sort_order, status')
+    .in('module_id', moduleIds.length ? moduleIds : NONE)
+    .eq('status', 'published');
+  const topicIds = (topics ?? []).map((t) => t.id);
+  const { data: prog } = await admin
+    .from('topic_progress')
+    .select('topic_id, status')
+    .eq('user_id', userId)
+    .in('topic_id', topicIds.length ? topicIds : NONE);
+
+  const statusByTopic = new Map((prog ?? []).map((p) => [p.topic_id, p.status]));
+  const moduleMeta = new Map((modules ?? []).map((m) => [m.id, { track: m.track_id, order: m.sort_order }]));
+  const byTrack = new Map<string, Array<{ id: string; title: string; sort_order: number; mo: number }>>();
+  for (const t of topics ?? []) {
+    const mo = moduleMeta.get(t.module_id);
+    if (!mo) continue;
+    const arr = byTrack.get(mo.track) ?? [];
+    arr.push({ id: t.id, title: t.title, sort_order: t.sort_order, mo: mo.order });
+    byTrack.set(mo.track, arr);
+  }
+
+  const summaries = (tracks ?? []).map((tr) => {
+    const list = (byTrack.get(tr.id) ?? []).sort((a, b) => a.mo - b.mo || a.sort_order - b.sort_order);
+    let done = 0;
+    let next: { id: string; title: string } | null = null;
+    for (const t of list) {
+      const s = statusByTopic.get(t.id);
+      if (s === 'done') done += 1;
+      if (!next && s !== 'done' && s !== 'skip') next = { id: t.id, title: t.title };
+    }
+    const e = enr.find((x) => x.track_id === tr.id)!;
+    return {
+      track: tr,
+      total: list.length,
+      done,
+      next,
+      start_date: e.start_date,
+      weekday_hours: e.weekday_hours,
+      weekend_hours: e.weekend_hours,
+    };
+  });
+  res.json({ summaries });
 });

@@ -30,12 +30,13 @@ type Selected = { topic: Topic; moduleTitle: string; index: number };
 export default function TrackRoadmapPage({ slug }: { slug?: string }) {
   const {
     current, currentLoading, loadTrack, enrollments, loadEnrollments, loadTrackState,
-    completed, notes, toggleTopic, saveTopicNote, error,
+    status, notes, setTopicStatus, saveTopicNote, error,
   } = useTrackStore();
   const user = useDashboardStore((s) => s.user);
   const canTrack = Boolean(user);
 
   const [view, setView] = useState<'graph' | 'list'>('graph');
+  const [hideDone, setHideDone] = useState(false);
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [selected, setSelected] = useState<Selected | null>(null);
@@ -48,7 +49,7 @@ export default function TrackRoadmapPage({ slug }: { slug?: string }) {
   }, [user, trackId, loadEnrollments, loadTrackState]);
 
   const allTopics = useMemo(() => (current?.modules ?? []).flatMap((m) => m.topics), [current]);
-  const doneCount = allTopics.filter((t) => completed.has(t.id)).length;
+  const doneCount = allTopics.filter((t) => status[t.id] === 'done').length;
   const pct = allTopics.length ? Math.round((doneCount / allTopics.length) * 100) : 0;
   const enrollment = trackId ? enrollments[trackId] : undefined;
 
@@ -114,35 +115,42 @@ export default function TrackRoadmapPage({ slug }: { slug?: string }) {
       )}
 
       {/* View switch: graph journey vs accordion list */}
-      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 2, gap: 1, flexWrap: 'wrap' }}>
         <Typography variant="subtitle2" color="text.secondary">Tap any concept to see what to study and its reference materials.</Typography>
-        <ToggleButtonGroup
-          size="small"
-          exclusive
-          value={view}
-          onChange={(_, v) => v && setView(v)}
-          sx={{ '& .MuiToggleButton-root': { textTransform: 'none', px: 1.5, gap: 0.5 } }}
-        >
-          <ToggleButton value="graph"><AccountTreeIcon fontSize="small" /> Journey</ToggleButton>
-          <ToggleButton value="list"><ViewListIcon fontSize="small" /> List</ToggleButton>
-        </ToggleButtonGroup>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+          {canTrack && (
+            <ToggleButton size="small" value="hide" selected={hideDone} onChange={() => setHideDone((v) => !v)} sx={{ textTransform: 'none', px: 1.5, py: 0.5 }}>
+              {hideDone ? 'Show all' : 'Hide finished'}
+            </ToggleButton>
+          )}
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            value={view}
+            onChange={(_, v) => v && setView(v)}
+            sx={{ '& .MuiToggleButton-root': { textTransform: 'none', px: 1.5, gap: 0.5 } }}
+          >
+            <ToggleButton value="graph"><AccountTreeIcon fontSize="small" /> Journey</ToggleButton>
+            <ToggleButton value="list"><ViewListIcon fontSize="small" /> List</ToggleButton>
+          </ToggleButtonGroup>
+        </Stack>
       </Stack>
 
       {view === 'graph' ? (
-        <RoadmapGraph key={track.id} modules={modules} completed={completed} accent={accent} onSelect={setSelected} />
+        <RoadmapGraph key={track.id} modules={modules} status={status} accent={accent} hideDone={hideDone} onSelect={setSelected} />
       ) : (
-        <RoadmapList key={track.id} modules={modules} completed={completed} accent={accent} onSelect={setSelected} />
+        <RoadmapList key={track.id} modules={modules} status={status} accent={accent} hideDone={hideDone} onSelect={setSelected} />
       )}
 
       <TopicDrawer
         topic={selected?.topic ?? null}
         moduleTitle={selected?.moduleTitle ?? ''}
         index={selected?.index ?? null}
-        done={selected ? completed.has(selected.topic.id) : false}
+        status={selected ? status[selected.topic.id] ?? 'todo' : 'todo'}
         note={selected ? notes[selected.topic.id] ?? '' : ''}
         canTrack={canTrack}
         onClose={() => setSelected(null)}
-        onToggle={() => selected && toggleTopic(selected.topic.id)}
+        onSetStatus={(s) => selected && setTopicStatus(selected.topic.id, s)}
         onSaveNote={(v) => selected && saveTopicNote(selected.topic.id, v)}
       />
 

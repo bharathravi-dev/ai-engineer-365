@@ -19,6 +19,7 @@ import {
   useMediaQuery,
 } from '@mui/material';
 import ExploreIcon from '@mui/icons-material/Explore';
+import SchoolIcon from '@mui/icons-material/School';
 import MapIcon from '@mui/icons-material/Map';
 import EventNoteIcon from '@mui/icons-material/EventNote';
 import MenuIcon from '@mui/icons-material/Menu';
@@ -32,6 +33,7 @@ import { useTrackStore } from './trackStore';
 import ErrorBoundary from './components/ErrorBoundary';
 
 // Route-level code splitting: each page is its own chunk, loaded on demand.
+const MyLearningPage = lazy(() => import('./pages/MyLearningPage'));
 const TracksCatalogPage = lazy(() => import('./pages/TracksCatalogPage'));
 const TrackRoadmapPage = lazy(() => import('./pages/TrackRoadmapPage'));
 const PlannerSchedulePage = lazy(() => import('./pages/PlannerSchedulePage'));
@@ -49,8 +51,8 @@ const Loading = () => (
 const drawerWidth = 264;
 const APP_NAME = 'SkillMap';
 
-type RouteId = 'catalog' | 'track' | 'planner' | 'account' | 'admin' | 'login' | 'register';
-const baseIds: RouteId[] = ['catalog', 'track', 'planner', 'account', 'admin', 'login', 'register'];
+type RouteId = 'home' | 'catalog' | 'track' | 'planner' | 'account' | 'admin' | 'login' | 'register';
+const baseIds: RouteId[] = ['home', 'catalog', 'track', 'planner', 'account', 'admin', 'login', 'register'];
 const authRouteIds: RouteId[] = ['login', 'register'];
 
 function parseHash(): { base: RouteId; param?: string } {
@@ -61,6 +63,8 @@ function parseHash(): { base: RouteId; param?: string } {
 
 function Page({ base, param }: { base: RouteId; param?: string }) {
   switch (base) {
+    case 'home':
+      return <MyLearningPage />;
     case 'track':
       return <TrackRoadmapPage slug={param} />;
     case 'planner':
@@ -93,9 +97,11 @@ function App() {
 
   type Section = { id: string; href: string; label: string; icon: ReactElement; active: boolean };
   const sections = useMemo<Section[]>(() => {
-    const list: Section[] = [
-      { id: 'catalog', href: '#catalog', label: 'Explore roadmaps', icon: <ExploreIcon />, active: route === 'catalog' },
-    ];
+    const list: Section[] = [];
+    if (user) {
+      list.push({ id: 'home', href: '#home', label: 'My learning', icon: <SchoolIcon />, active: route === 'home' });
+    }
+    list.push({ id: 'catalog', href: '#catalog', label: 'Explore roadmaps', icon: <ExploreIcon />, active: route === 'catalog' });
     if (currentTrack) {
       list.push({ id: 'track', href: `#track/${currentTrack.slug}`, label: 'My roadmap', icon: <MapIcon />, active: route === 'track' });
     }
@@ -113,8 +119,13 @@ function App() {
 
   const isAuthRoute = authRouteIds.includes(route);
   useEffect(() => {
-    if (user && isAuthRoute) window.location.hash = 'catalog';
+    if (user && isAuthRoute) window.location.hash = 'home';
   }, [user, isAuthRoute]);
+
+  // Signed-in users land on "My learning" instead of the public catalog.
+  useEffect(() => {
+    if (user && !window.location.hash) window.location.hash = 'home';
+  }, [user]);
 
   useEffect(() => {
     const onHash = () => {

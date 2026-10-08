@@ -3,17 +3,16 @@ import {
   Box,
   Button,
   Chip,
-  Divider,
   Drawer,
   IconButton,
   Link,
   Stack,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import DescriptionIcon from '@mui/icons-material/Description';
@@ -21,7 +20,17 @@ import OndemandVideoIcon from '@mui/icons-material/OndemandVideo';
 import CodeIcon from '@mui/icons-material/Code';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import SchoolIcon from '@mui/icons-material/School';
-import type { Topic } from '../lib/api';
+import type { Topic, TopicStatus } from '../lib/api';
+
+const STATES: { value: TopicStatus; label: string }[] = [
+  { value: 'todo', label: 'To do' },
+  { value: 'in_progress', label: 'In progress' },
+  { value: 'done', label: 'Done' },
+  { value: 'skip', label: 'Skip' },
+];
+const faviconUrl = (u: string) => {
+  try { return `https://www.google.com/s2/favicons?domain=${new URL(u).hostname}&sz=64`; } catch { return ''; }
+};
 
 const KIND: Record<string, { label: string; icon: ReactElement; color: string }> = {
   doc: { label: 'Documentation', icon: <MenuBookIcon fontSize="small" />, color: '#6366f1' },
@@ -33,16 +42,16 @@ const KIND: Record<string, { label: string; icon: ReactElement; color: string }>
 };
 
 export default function TopicDrawer({
-  topic, moduleTitle, index, done, note, canTrack, onClose, onToggle, onSaveNote,
+  topic, moduleTitle, index, status, note, canTrack, onClose, onSetStatus, onSaveNote,
 }: {
   topic: Topic | null;
   moduleTitle: string;
   index: number | null;
-  done: boolean;
+  status: TopicStatus;
   note: string;
   canTrack: boolean;
   onClose: () => void;
-  onToggle: () => void;
+  onSetStatus: (s: TopicStatus) => void;
   onSaveNote: (v: string) => void;
 }) {
   const [draft, setDraft] = useState(note);
@@ -76,22 +85,34 @@ export default function TopicDrawer({
               <IconButton size="small" onClick={onClose}><CloseIcon fontSize="small" /></IconButton>
             </Stack>
             <Typography variant="h5" sx={{ mt: 0.5 }}>{topic.title}</Typography>
-            <Stack direction="row" spacing={1} sx={{ mt: 1.5, alignItems: 'center' }}>
-              <Chip size="small" variant="outlined" label={`~${topic.est_hours} hours`} />
-              {canTrack ? (
-                <Button
-                  size="small"
-                  variant={done ? 'outlined' : 'contained'}
-                  color={done ? 'success' : 'primary'}
-                  startIcon={done ? <CheckCircleIcon /> : <RadioButtonUncheckedIcon />}
-                  onClick={onToggle}
-                >
-                  {done ? 'Completed' : 'Mark complete'}
-                </Button>
-              ) : (
-                <Button size="small" variant="contained" href="#login">Sign in to track</Button>
-              )}
-            </Stack>
+            <Chip size="small" variant="outlined" label={`~${topic.est_hours} hours`} sx={{ mt: 1.5 }} />
+            {canTrack ? (
+              <ToggleButtonGroup
+                exclusive
+                size="small"
+                value={status}
+                onChange={(_, v) => v && onSetStatus(v as TopicStatus)}
+                sx={{ mt: 1.5, display: 'flex', '& .MuiToggleButton-root': { flex: 1, textTransform: 'none', py: 0.5, fontSize: 12.5 } }}
+              >
+                {STATES.map((s) => (
+                  <ToggleButton
+                    key={s.value}
+                    value={s.value}
+                    sx={{
+                      '&.Mui-selected': {
+                        color: '#fff',
+                        bgcolor: s.value === 'done' ? 'success.main' : s.value === 'in_progress' ? 'warning.main' : s.value === 'skip' ? 'text.disabled' : 'primary.main',
+                        '&:hover': { bgcolor: s.value === 'done' ? 'success.dark' : s.value === 'in_progress' ? 'warning.dark' : 'primary.dark' },
+                      },
+                    }}
+                  >
+                    {s.label}
+                  </ToggleButton>
+                ))}
+              </ToggleButtonGroup>
+            ) : (
+              <Box sx={{ mt: 1.5 }}><Button size="small" variant="contained" href="#login">Sign in to track</Button></Box>
+            )}
           </Box>
 
           <Box sx={{ p: 2.5, overflowY: 'auto', flexGrow: 1 }}>
@@ -118,7 +139,19 @@ export default function TopicDrawer({
                           '&:hover': { borderColor: meta.color, bgcolor: `${meta.color}0d` },
                         }}
                       >
-                        <Box sx={{ color: meta.color, display: 'flex' }}>{meta.icon}</Box>
+                        <Box sx={{ position: 'relative', width: 22, height: 22, flex: 'none', display: 'grid', placeItems: 'center', color: meta.color }}>
+                          {meta.icon}
+                          {r.kind === 'video' ? null : (
+                            <Box
+                              component="img"
+                              src={faviconUrl(r.url)}
+                              alt=""
+                              loading="lazy"
+                              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                              sx={{ position: 'absolute', width: 18, height: 18, borderRadius: '4px', bgcolor: 'background.paper' }}
+                            />
+                          )}
+                        </Box>
                         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                           <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>{r.title}</Typography>
                           <Typography variant="caption" sx={{ color: meta.color }}>{meta.label}</Typography>

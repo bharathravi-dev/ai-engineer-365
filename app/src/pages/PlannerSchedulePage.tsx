@@ -14,17 +14,20 @@ import {
 import WeekendIcon from '@mui/icons-material/Weekend';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import { useTrackStore } from '../trackStore';
 import { useDashboardStore } from '../store';
 import PageHeader from '../components/PageHeader';
 import EnrollDialog from '../components/EnrollDialog';
 import { generateSchedule } from '../lib/schedule';
+import { buildIcs, downloadIcs } from '../lib/ics';
 
 const fmt = (d: Date) => d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 const isPast = (d: Date) => d < new Date(new Date().toDateString());
 
 export default function PlannerSchedulePage() {
-  const { current, enrollments, completed, loadEnrollments, loadTrackState, toggleTopic } = useTrackStore();
+  const { current, enrollments, status, loadEnrollments, loadTrackState, toggleDone } = useTrackStore();
+  const isDoneStatus = (id: string) => status[id] === 'done';
   const user = useDashboardStore((s) => s.user);
   const [enrollOpen, setEnrollOpen] = useState(false);
 
@@ -74,7 +77,7 @@ export default function PlannerSchedulePage() {
   }
 
   const total = schedule.reduce((n, d) => n + d.items.length, 0);
-  const done = schedule.reduce((n, d) => n + d.items.filter((it) => completed.has(it.topic.id)).length, 0);
+  const done = schedule.reduce((n, d) => n + d.items.filter((it) => isDoneStatus(it.topic.id)).length, 0);
   const finish = schedule.length ? schedule[schedule.length - 1].date : null;
   const pct = total ? Math.round((done / total) * 100) : 0;
 
@@ -84,7 +87,19 @@ export default function PlannerSchedulePage() {
         overline="Day planner"
         title={`${current.track.icon}  ${current.track.title}`}
         subtitle="Every concept scheduled day by day around your study hours. Completed concepts stay on their day."
-        action={<Button variant="outlined" onClick={() => setEnrollOpen(true)}>Adjust hours</Button>}
+        action={
+          <Stack direction="row" spacing={1}>
+            <Button
+              variant="outlined"
+              startIcon={<CalendarMonthIcon />}
+              disabled={schedule.length === 0}
+              onClick={() => downloadIcs(`skillmap-${current.track.slug}.ics`, buildIcs(current.track.title, schedule))}
+            >
+              Add to calendar
+            </Button>
+            <Button variant="outlined" onClick={() => setEnrollOpen(true)}>Adjust hours</Button>
+          </Stack>
+        }
       />
 
       <Card sx={{ mb: 3 }}>
@@ -107,7 +122,7 @@ export default function PlannerSchedulePage() {
       ) : (
         <Stack spacing={1.25}>
           {schedule.map((day, i) => {
-            const dayDone = day.items.every((it) => completed.has(it.topic.id));
+            const dayDone = day.items.every((it) => isDoneStatus(it.topic.id));
             return (
               <Card key={i} sx={{ borderLeft: (t) => `3px solid ${dayDone ? t.palette.success.main : day.isWeekend ? t.palette.warning.main : t.palette.primary.main}`, opacity: isPast(day.date) && !dayDone ? 0.85 : 1 }}>
                 <CardContent sx={{ py: 1.5 }}>
@@ -123,12 +138,12 @@ export default function PlannerSchedulePage() {
                   <Divider sx={{ mb: 1 }} />
                   <Stack spacing={0.5}>
                     {day.items.map(({ topic, moduleTitle }) => {
-                      const isDone = completed.has(topic.id);
+                      const isDone = isDoneStatus(topic.id);
                       return (
                         <Stack key={topic.id} direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                           <Box
                             component="button"
-                            onClick={() => toggleTopic(topic.id)}
+                            onClick={() => toggleDone(topic.id)}
                             sx={{ border: 0, bgcolor: 'transparent', cursor: 'pointer', p: 0, display: 'flex', color: isDone ? 'success.main' : 'text.disabled' }}
                             aria-label="toggle complete"
                           >
